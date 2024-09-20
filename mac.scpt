@@ -1,3 +1,27 @@
+on MMSecretVar()
+    try
+        set MMSecret to (do shell script "defaults read com.amazon.dsx.ec2.enrollment.automation MMSecret")
+    on error
+        --Change what's in the quotes below to the name or ARN of your AWS Secrets Manager secret if coding in here.
+        set MMSecret to "jamfSecret"
+    end try
+    return MMSecret
+end MMSecretVar
+
+on getInvitationID()
+    --If manually setting an invitation ID, set here and use the following command to enable:
+    --defaults write com.amazon.dsx.ec2.enrollment.automation invitationID "INVITATIONIDGOESHERE"
+    try
+        --If setting inline, uncomment the below and remove the defaults line.
+        --set theInvitationID to ""
+        set theInvitationID to (do shell script "defaults read com.amazon.dsx.ec2.enrollment.automation invitationID")
+        get theInvitationID
+    on error
+        set theInvitationID to false
+    end try
+    return theInvitationID
+end getInvitationID
+
 if macOSMajor is greater than or equal to 13 then
     -- Ventura runtime starts here.
     tell application "System Events" to tell process settingsApp
@@ -166,10 +190,15 @@ else
         delay 0.2
         my visiLog("Status", "Profile authorized, awaiting enrollment confirmation…", localAdmin, adminPass)
 
-        -- Checks to make sure the enrollment completes by checking the field in the lower left corner for updates.
+        -- Checks to make sure the profile is successfully installed.
         repeat
-            if (value of static text 1 of window 1) contains "managed" then
-                do shell script "killall -m System\\ Preferences" user name localAdmin password adminPass with administrator privileges
+            try
+                set managedValidationText to (get value of static text 1 of scroll area 1 of window 1)
+            on error
+                set managedValidationText to ""
+            end try
+            if managedValidationText contains "managed" then
+                do shell script "killall -m 'System Preferences'" user name localAdmin password adminPass with administrator privileges
                 exit repeat
             else
                 delay 0.5
@@ -180,12 +209,55 @@ else
                 set enrollmentCLI to null
             end try
             if enrollmentCLI contains "Yes" then
+                do shell script "killall -m 'System Preferences'" user name localAdmin password adminPass with administrator privileges
                 exit repeat
             end if
         end repeat
     end tell
 end if
 
--- Enable screen sharing for user to connect. May be embedded, but good for "access enabled after enrollment." This flow only works if the AMI is prepared with auto-login.
-do shell script "launchctl enable system/com.apple.screensharing" user name localAdmin password adminPass with administrator privileges
-do shell script "launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing
+-- Additional helper functions below...
+
+on clickCheck(pathPrefix)
+    try
+        do shell script pathPrefix & "cliclick -v"
+        return true
+    on error
+        return false
+    end try
+end clickCheck
+
+on brewPrivilegeRepair(archType, localAdmin, adminPass)
+    if archType is equal to "arm" then
+        do shell script "/opt/homebrew/bin/brew doctor" user name localAdmin password adminPass with administrator privileges
+    else
+        do shell script "/usr/local/bin/brew doctor" user name localAdmin password adminPass with administrator privileges
+    end if
+end brewPrivilegeRepair
+
+on elementCheck(elementText, windowTitle)
+    repeat until (exists window windowTitle)
+        delay 0.5
+    end repeat
+    repeat until (exists (first static text whose value contains elementText) of window windowTitle)
+        delay 0.5
+    end repeat
+end elementCheck
+
+on securityCheckVentura()
+    repeat until (exists window "System Settings")
+        delay 0.5
+    end repeat
+end securityCheckVentura
+
+on securityCheck()
+    repeat until (exists window "System Preferences")
+        delay 0.5
+    end repeat
+end securityCheck
+
+on visiLog(logType, logMessage, localAdmin, adminPass)
+    -- Add your custom logging implementation here.
+    log logMessage
+end visiLog
+
